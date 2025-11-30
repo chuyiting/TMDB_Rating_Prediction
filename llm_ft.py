@@ -79,7 +79,10 @@ def build_model_and_tokenizer(model_name: str):
     Load tokenizer + model for regression.
     AutoModelForSequenceClassification with num_labels=1 + problem_type='regression'.
     """
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        use_fast=False,  
+    )
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
@@ -87,6 +90,7 @@ def build_model_and_tokenizer(model_name: str):
         problem_type="regression",
     )
     return tokenizer, model
+
 
 
 def tokenize_function_builder(tokenizer, max_length: int):
