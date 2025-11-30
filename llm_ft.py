@@ -60,6 +60,7 @@ def build_movies_with_cast_text(
     credits_path: str,
     top_k_cast: int = TOP_K_CAST,
     top_n_actors: int = TOP_N_ACTORS,
+    use_full_metadata: bool = False,  
 ):
     """
     Load movies + credits and build a DataFrame that includes:
@@ -68,7 +69,13 @@ def build_movies_with_cast_text(
       - overview
       - vote_average
       - top_cast_names: list[str] of top-K cast names that are in global top-N
-      - text_for_llm: "Overview: ...\nCast: a, b, c, ..."
+      - text_for_llm: a natural-language prompt using
+          * title
+          * overview
+          * top-K cast (restricted to global top-N)
+          * budget
+          * popularity
+          * (optional) all other metadata columns when use_full_metadata=True
 
     This is the DataFrame we will then split into train/val/test.
     """
@@ -124,17 +131,67 @@ def build_movies_with_cast_text(
 
     # Build final text_for_llm
     def make_text(row):
-        overview = row["overview"] if isinstance(row["overview"], str) else ""
-        names = row["top_cast_names"]
-        if isinstance(names, list) and len(names) > 0:
-            cast_str = ", ".join(names)
-            return f"Overview: {overview}\nCast: {cast_str}"
-        else:
-            return f"Overview: {overview}"
+        title = row["title"] if isinstance(row["title"], str) else ""
+        # overview = row["overview"] if isinstance(row["overview"], str) else ""
+        budget = row.get("budget", None)
+        popularity = row.get("popularity", None)
+        names = row.get("top_cast_names", [])
+
+        if not isinstance(names, list):
+            names = []
+        cast_str = ", ".join(names) if names else "unknown cast"
+
+        # Core prompt: title + overview + cast + budget + popularity
+        pieces = []
+
+        if title:
+            pieces.append(f"Movie title: {title}.")
+        # if overview:
+        #     pieces.append(f"Overview: {overview}")
+
+        pieces.append(f"Cast: {cast_str}.")
+
+        # Budget/popularity: they might be NaN, so guard a bit
+        if pd.notna(budget):
+            pieces.append(f"Budget: {int(budget)} USD.")
+        if pd.notna(popularity):
+            pieces.append(f"Popularity score: {float(popularity):.3f}.")
+
+        # Optional: include all other metadata columns in a compact way
+        if use_full_metadata:
+            meta_parts = []
+
+            # These are all the other columns you showed
+            for col in [
+                "original_title",
+                "original_language",
+                "genres",
+                "keywords",
+                "production_companies",
+                "production_countries",
+                "release_date",
+                "revenue",
+                "runtime",
+                "spoken_languages",
+                "status",
+                "tagline",
+                "vote_count",
+                "homepage",
+            ]:
+                if col in row and pd.notna(row[col]):
+                    val = row[col]
+                    meta_parts.append(f"{col} = {val}")
+
+            if meta_parts:
+                pieces.append("Additional info: " + "; ".join(meta_parts) + ".")
+
+        # Join everything into one text prompt
+        return " ".join(pieces)
 
     data_with_cast["text_for_llm"] = data_with_cast.apply(make_text, axis=1)
 
     return data_with_cast
+
 
 
 # ---------------------------------------------------------------------
